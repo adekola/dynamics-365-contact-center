@@ -4,6 +4,7 @@
 const path = require('path');
 console.log(__dirname);
 module.exports = {
+    mode: 'production',
     entry: {
         SFExampleCTIDriver: "./src/SFExampleCTIDriver.ts"
     },
@@ -12,10 +13,11 @@ module.exports = {
         path: path.resolve(
             "./",
             "dist"
-        ) // Output directory
+        ), // Output directory
+        clean: true // Clean the output directory before emit
     },
     resolve: {
-        extensions: [".ts"] // Allow importing TypeScript files without extension
+        extensions: [".ts", ".js"] // Allow importing TypeScript files without extension
     },
     module: {
         rules: [
@@ -26,4 +28,7 @@ module.exports = {
             }
         ]
     },
+    optimization: {
+        minimize: true
+    }
 };

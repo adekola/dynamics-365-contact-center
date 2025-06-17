@@ -286,12 +286,11 @@ export const setSoftPhonePanelVisibility = (status: boolean = true) => {
 /**
  * Initialize call session tracking when conversation loads
  */
-async function initializeCallSession(conversationData: IConversationLoadedEventData, conversationDetails: Partial<IConversationData>): Promise<void> {
-    const callSession: CallSession = {
+async function initializeCallSession(conversationData: IConversationLoadedEventData, conversationDetails: Partial<IConversationData>): Promise<void> {    const callSession: CallSession = {
         liveWorkItemId: conversationData.liveWorkItemId,
         customerInfo: {
             phoneNumber: conversationData.customerPhoneNumber,
-            email: conversationData.customerEmail,
+            email: undefined, // Email not available in IConversationLoadedEventData
             name: conversationData.customerName
         }
     };

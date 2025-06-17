@@ -6,11 +6,14 @@
 {
   "compileOnSave": false,
   "compilerOptions": {
-    "target": "es6",
+    "target": "es2017",
+    "lib": ["es2017", "dom"],
     "module": "commonjs",
     "outDir": "./dist",
     "declaration": false,
     "declarationMap": false,
-    "experimentalDecorators": true
+    "experimentalDecorators": true,
+    "strict": false,
+    "skipLibCheck": true
   }
 }
