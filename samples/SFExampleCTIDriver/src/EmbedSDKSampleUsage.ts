@@ -43,6 +43,22 @@ enum OCLiveWorkItemStatus {
 
 type EmbedSDK = typeof Microsoft.CCaaS.EmbedSDK;
 
+// Add interface for call tracking
+interface CallSession {
+    liveWorkItemId: string;
+    salesforceCaseId?: string;
+    callStartTime?: Date;
+    callEndTime?: Date;
+    customerInfo?: {
+        phoneNumber?: string;
+        email?: string;
+        name?: string;
+    };
+}
+
+// Store active call sessions
+const activeCalls = new Map<string, CallSession>();
+
 export function embedSDKSampleUsage(): void {
     const embedSDK: EmbedSDK = (window as any).Microsoft.CCaaS.EmbedSDK;
     if (embedSDK) {
@@ -55,6 +71,10 @@ export function embedSDKSampleUsage(): void {
             console.log("Embed SDK Conversation Loaded", conversationData);
             getFocusedConversationId(embedSDK);
             const conversationDetails: Partial<IConversationData> = await embedSDK.conversation.getConversationData(conversationData.liveWorkItemId, ['msdyn_isoutbound', 'msdyn_channel', 'subject']);
+            
+            // Initialize call session tracking
+            await initializeCallSession(conversationData, conversationDetails);
+            
             await conversationReady(conversationData, conversationDetails);
             presenceAPIs(embedSDK);
         });
@@ -63,10 +83,12 @@ export function embedSDKSampleUsage(): void {
             console.log("Embed SDK Conversation Transferred", conversationTransferData);
         });
 
-        embedSDK.conversation.onStatusChange((conversationData: IConversationStatusChangeData) => {
+        embedSDK.conversation.onStatusChange(async (conversationData: IConversationStatusChangeData) => {
             console.log("Embed SDK Conversation State Changed", conversationData);
 
             if (conversationData.statusCode === OCLiveWorkItemStatus.Closed) {
+                // Record call end time and update Salesforce Case
+                await recordCallEndTime(conversationData.liveWorkItemId);
                 getTranscript(embedSDK, conversationData.liveWorkItemId);
             }
         });
@@ -75,8 +97,12 @@ export function embedSDKSampleUsage(): void {
             console.log("Embed SDK New Message", messageData);
         });
 
-        embedSDK.conversation.onAccept((eventData: IConversationEventBase) => {
+        embedSDK.conversation.onAccept(async (eventData: IConversationEventBase) => {
             console.log("Embed SDK Conversation Accepted", eventData);
+            
+            // Record call start time
+            await recordCallStartTime(eventData.liveWorkItemId);
+            
             addNewNotification(embedSDK);
             getAssignedConversationsList(embedSDK);
             getConversationData(embedSDK, eventData.liveWorkItemId);
@@ -255,4 +281,295 @@ export const setSoftPhonePanelVisibility = (status: boolean = true) => {
             visible: status
         });
     }
+}
+
+/**
+ * Initialize call session tracking when conversation loads
+ */
+async function initializeCallSession(conversationData: IConversationLoadedEventData, conversationDetails: Partial<IConversationData>): Promise<void> {
+    const callSession: CallSession = {
+        liveWorkItemId: conversationData.liveWorkItemId,
+        customerInfo: {
+            phoneNumber: conversationData.customerPhoneNumber,
+            email: conversationData.customerEmail,
+            name: conversationData.customerName
+        }
+    };
+
+    // Store the call session
+    activeCalls.set(conversationData.liveWorkItemId, callSession);
+    
+    console.log("Call session initialized:", callSession);
+}
+
+/**
+ * Record call start time and create/find Salesforce Case
+ */
+async function recordCallStartTime(liveWorkItemId: string): Promise<void> {
+    const callSession = activeCalls.get(liveWorkItemId);
+    if (!callSession) {
+        console.error("Call session not found for liveWorkItemId:", liveWorkItemId);
+        return;
+    }
+
+    // Record the call start time
+    callSession.callStartTime = new Date();
+    
+    try {
+        // Find or create Salesforce Case
+        const caseId = await findOrCreateSalesforceCase(callSession);
+        callSession.salesforceCaseId = caseId;
+
+        // Update Case with call start time
+        await updateSalesforceCaseCallTimes(caseId, callSession.callStartTime, null);
+        
+        console.log(`Call start time recorded for Case ${caseId}:`, callSession.callStartTime);
+        
+    } catch (error) {
+        console.error("Failed to record call start time:", error);
+    }
+}
+
+/**
+ * Record call end time and update Salesforce Case
+ */
+async function recordCallEndTime(liveWorkItemId: string): Promise<void> {
+    const callSession = activeCalls.get(liveWorkItemId);
+    if (!callSession) {
+        console.error("Call session not found for liveWorkItemId:", liveWorkItemId);
+        return;
+    }
+
+    // Record the call end time
+    callSession.callEndTime = new Date();
+    
+    try {
+        if (callSession.salesforceCaseId) {
+            // Update Case with call end time
+            await updateSalesforceCaseCallTimes(
+                callSession.salesforceCaseId, 
+                callSession.callStartTime, 
+                callSession.callEndTime
+            );
+            
+            // Calculate call duration
+            const duration = callSession.callStartTime && callSession.callEndTime 
+                ? (callSession.callEndTime.getTime() - callSession.callStartTime.getTime()) / 1000 
+                : 0;
+                
+            console.log(`Call completed for Case ${callSession.salesforceCaseId}:`, {
+                startTime: callSession.callStartTime,
+                endTime: callSession.callEndTime,
+                duration: `${duration} seconds`
+            });
+            
+            // Optionally save call log
+            await saveCallLog(callSession, duration);
+        }
+        
+    } catch (error) {
+        console.error("Failed to record call end time:", error);
+    } finally {
+        // Clean up the call session
+        activeCalls.delete(liveWorkItemId);
+    }
+}
+
+/**
+ * Find existing Case or create new one for the customer
+ */
+async function findOrCreateSalesforceCase(callSession: CallSession): Promise<string> {
+    return new Promise((resolve, reject) => {
+        // First, try to find existing customer record
+        if (callSession.customerInfo?.phoneNumber) {
+            window.sforce.opencti.searchAndScreenPop({
+                searchParams: callSession.customerInfo.phoneNumber,
+                callType: window.sforce.opencti.CALL_TYPE.INBOUND,
+                deferred: true,
+                callback: async (response) => {
+                    if (response.success && response.returnValue) {
+                        // Customer found, look for open Case
+                        const contactId = findContactFromSearchResults(response.returnValue);
+                        if (contactId) {
+                            const caseId = await findOpenCaseForContact(contactId) || await createNewCase(contactId, callSession);
+                            resolve(caseId);
+                        } else {
+                            // No contact found, create new Case without contact
+                            const caseId = await createNewCase(null, callSession);
+                            resolve(caseId);
+                        }
+                    } else {
+                        // Customer not found, create new Case
+                        const caseId = await createNewCase(null, callSession);
+                        resolve(caseId);
+                    }
+                }
+            });
+        } else {
+            // No phone number, create new Case
+            createNewCase(null, callSession).then(resolve).catch(reject);
+        }
+    });
+}
+
+/**
+ * Find Contact ID from search results
+ */
+function findContactFromSearchResults(searchResults: any): string | null {
+    for (const recordId in searchResults) {
+        if (searchResults.hasOwnProperty(recordId)) {
+            const record = searchResults[recordId];
+            if (record && record.RecordType === 'Contact') {
+                return recordId;
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * Find open Case for Contact using runApex
+ */
+async function findOpenCaseForContact(contactId: string): Promise<string | null> {
+    return new Promise((resolve) => {
+        const apexCode = `
+            List<Case> cases = [
+                SELECT Id FROM Case 
+                WHERE ContactId = '${contactId}' 
+                AND Status NOT IN ('Closed', 'Resolved')
+                ORDER BY CreatedDate DESC 
+                LIMIT 1
+            ];
+            return cases.isEmpty() ? null : cases[0].Id;
+        `;
+
+        window.sforce.opencti.runApex({
+            apexClass: null,
+            methodName: null,
+            methodParams: null,
+            callback: (response) => {
+                if (response.success && response.returnValue) {
+                    resolve(response.returnValue);
+                } else {
+                    resolve(null);
+                }
+            },
+            apexCode: apexCode
+        });
+    });
+}
+
+/**
+ * Create new Salesforce Case
+ */
+async function createNewCase(contactId: string | null, callSession: CallSession): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const caseData = {
+            Subject: `Contact Center Call - ${callSession.customerInfo?.name || 'Unknown Customer'}`,
+            Origin: 'Phone',
+            Status: 'New',
+            Priority: 'Medium',
+            Description: `Inbound call received at ${new Date().toLocaleString()}`,
+            // Add custom fields for call tracking
+            Call_Start_Time__c: null, // Will be updated when call starts
+            Call_End_Time__c: null,   // Will be updated when call ends
+        };
+
+        if (contactId) {
+            (caseData as any).ContactId = contactId;
+        }
+
+        const apexCode = `
+            Case newCase = new Case();
+            newCase.Subject = '${caseData.Subject}';
+            newCase.Origin = '${caseData.Origin}';
+            newCase.Status = '${caseData.Status}';
+            newCase.Priority = '${caseData.Priority}';
+            newCase.Description = '${caseData.Description}';
+            ${contactId ? `newCase.ContactId = '${contactId}';` : ''}
+            
+            insert newCase;
+            return newCase.Id;
+        `;
+
+        window.sforce.opencti.runApex({
+            apexClass: null,
+            methodName: null,
+            methodParams: null,
+            callback: (response) => {
+                if (response.success && response.returnValue) {
+                    console.log("New Salesforce Case created:", response.returnValue);
+                    resolve(response.returnValue);
+                } else {
+                    console.error("Failed to create Salesforce Case:", response.errors);
+                    reject(new Error("Failed to create Case"));
+                }
+            },
+            apexCode: apexCode
+        });
+    });
+}
+
+/**
+ * Update Salesforce Case with call start and end times
+ */
+async function updateSalesforceCaseCallTimes(caseId: string, startTime: Date | null, endTime: Date | null): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const startTimeStr = startTime ? startTime.toISOString() : 'null';
+        const endTimeStr = endTime ? endTime.toISOString() : 'null';
+
+        const apexCode = `
+            Case caseToUpdate = [SELECT Id FROM Case WHERE Id = '${caseId}' LIMIT 1];
+            ${startTime ? `caseToUpdate.Call_Start_Time__c = DateTime.valueOf('${startTime.toISOString().replace('T', ' ').replace('Z', '')}');` : ''}
+            ${endTime ? `caseToUpdate.Call_End_Time__c = DateTime.valueOf('${endTime.toISOString().replace('T', ' ').replace('Z', '')}');` : ''}
+            
+            update caseToUpdate;
+            return 'SUCCESS';
+        `;
+
+        window.sforce.opencti.runApex({
+            apexClass: null,
+            methodName: null,
+            methodParams: null,
+            callback: (response) => {
+                if (response.success) {
+                    console.log(`Case ${caseId} updated with call times`);
+                    resolve();
+                } else {
+                    console.error("Failed to update Case call times:", response.errors);
+                    reject(new Error("Failed to update Case"));
+                }
+            },
+            apexCode: apexCode
+        });
+    });
+}
+
+/**
+ * Save detailed call log as Activity or custom object
+ */
+async function saveCallLog(callSession: CallSession, duration: number): Promise<void> {
+    if (!callSession.salesforceCaseId) return;
+
+    return new Promise((resolve, reject) => {
+        const logData = {
+            subject: 'Contact Center Call Log',
+            description: `Call Duration: ${duration} seconds\nStart: ${callSession.callStartTime}\nEnd: ${callSession.callEndTime}`,
+            whatId: callSession.salesforceCaseId,
+            activityDateTime: callSession.callStartTime
+        };
+
+        window.sforce.opencti.saveLog({
+            value: JSON.stringify(logData),
+            callback: (response) => {
+                if (response.success) {
+                    console.log("Call log saved successfully");
+                    resolve();
+                } else {
+                    console.error("Failed to save call log:", response.errors);
+                    reject(new Error("Failed to save call log"));
+                }
+            }
+        });
+    });
 }
