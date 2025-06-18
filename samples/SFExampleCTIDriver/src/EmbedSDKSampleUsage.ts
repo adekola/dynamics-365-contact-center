@@ -73,11 +73,39 @@ export function embedSDKSampleUsage(): void {
             if (window.sforce) {
                 console.log("sforce available, properties:", Object.keys(window.sforce));
             }
-        }
-
-        // Set up message listener for parent window communication
+        }        // Set up message listener for parent window communication
         if (window.parent !== window) {
+            console.log("🔧 Setting up iframe message listeners...");
+            
             window.addEventListener('message', (event) => {
+                console.log("📨 Iframe received message:", event.data);
+                
+                if (event.data.type === 'PING_TEST') {
+                    console.log("🏓 Responding to ping test");
+                    window.parent.postMessage({
+                        type: 'PONG_RESPONSE',
+                        originalTimestamp: event.data.timestamp,
+                        responseTimestamp: Date.now()
+                    }, '*');
+                }
+                
+                if (event.data.type === 'CALL_CTI_FUNCTION') {
+                    console.log("🎯 Received CTI function call request:", event.data.functionName);
+                    
+                    switch (event.data.functionName) {
+                        case 'testSalesforceIntegration':
+                            console.log("🚀 Executing testSalesforceIntegration...");
+                            testSalesforceIntegration();
+                            break;
+                        case 'checkSalesforceStatus':
+                            console.log("🔍 Executing checkSalesforceStatus...");
+                            (window as any).checkSalesforceStatus();
+                            break;
+                        default:
+                            console.log("❌ Unknown function:", event.data.functionName);
+                    }
+                }
+                
                 if (event.data.type === 'INJECT_HELPER_SCRIPT') {
                     try {
                         eval(event.data.script);
@@ -87,6 +115,8 @@ export function embedSDKSampleUsage(): void {
                     }
                 }
             });
+            
+            console.log("✅ Message listeners set up in iframe");
         }
 
         embedSDK.conversation.onNotesAdded((noteText: INotesAddedEvent) => {
@@ -779,29 +809,45 @@ function initializeGlobalDebugFunctions() {
                 } catch (directError) {
                     console.log("⚠️ Direct assignment blocked:", directError.message);
                 }
+                  // Set up postMessage communication for cross-origin scenarios
+                console.log("🔧 Setting up postMessage communication...");
                 
-                // Set up postMessage communication for cross-origin scenarios
                 window.addEventListener('message', (event) => {
+                    console.log("📨 CTI iframe received message:", event.data);
+                    
+                    if (event.data.type === 'PING_TEST') {
+                        console.log("🏓 Responding to ping test");
+                        window.parent.postMessage({
+                            type: 'PONG_RESPONSE',
+                            originalTimestamp: event.data.timestamp,
+                            responseTimestamp: Date.now()
+                        }, '*');
+                    }
+                    
                     if (event.data.type === 'CALL_CTI_FUNCTION') {
                         console.log("🎯 Received CTI function call request:", event.data.functionName);
                         
                         switch (event.data.functionName) {
                             case 'testSalesforceIntegration':
+                                console.log("🚀 Executing testSalesforceIntegration from iframe...");
                                 testSalesforceIntegration();
                                 break;
                             case 'checkSalesforceStatus':
+                                console.log("🔍 Executing checkSalesforceStatus from iframe...");
                                 (window as any).checkSalesforceStatus();
                                 break;
                             default:
-                                console.log("Unknown function:", event.data.functionName);
+                                console.log("❌ Unknown function:", event.data.functionName);
                         }
                     }
                 });
                 
-                // Notify parent that functions are ready
+                console.log("✅ PostMessage listeners ready in iframe");
+                  // Notify parent immediately that iframe is ready
                 window.parent.postMessage({
-                    type: 'CTI_DEBUG_FUNCTIONS_READY',
-                    functions: ['testSalesforceIntegration', 'checkSalesforceStatus', 'CCaaSDebug']
+                    type: 'CTI_IFRAME_READY',
+                    timestamp: Date.now(),
+                    message: 'CTI iframe has loaded and is ready for communication'
                 }, '*');
                 
                 // Also create helper functions in parent window via postMessage
