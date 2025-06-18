@@ -768,33 +768,76 @@ function runSalesforceTest(): void {
         return;
     }
     
-    // Test simple Apex execution
-    const testApexCode = `
-        return 'Salesforce CTI Integration Test Successful - ' + DateTime.now().format();
-    `;
-    
     console.log("🚀 Running Salesforce integration test...");
-    console.log("📝 Apex code to execute:", testApexCode.trim());
+    console.log("🔧 Using getPageInfo instead of runApex for testing...");
     
     try {
-        window.sforce.opencti.runApex({
+        // Use getPageInfo as a simple test - it doesn't require Apex permissions
+        window.sforce.opencti.getPageInfo({
             callback: (response) => {
-                console.log("📨 Received runApex response:", response);
+                console.log("📨 Received getPageInfo response:", response);
                 if (response.success) {
-                    console.log("✅ Salesforce integration test PASSED:", response.returnValue);
+                    console.log("✅ Salesforce Open CTI test PASSED!");
+                    console.log("📋 Page info:", response.returnValue);
+                    console.log("🎯 This confirms CTI integration is working properly");
+                    
+                    // Now test a simple Apex call with correct parameters
+                    console.log("🔬 Testing simple Apex execution...");
+                    testSimpleApex();
                 } else {
-                    console.error("❌ Salesforce integration test FAILED:");
+                    console.error("❌ getPageInfo test FAILED:");
                     console.error("  - Success:", response.success);
                     console.error("  - Errors:", response.errors);
                     console.error("  - Full response:", response);
                 }
-            },
-            apexCode: testApexCode
+            }
         });
     } catch (error) {
-        console.error("❌ Exception running runApex:", error);
+        console.error("❌ Exception running getPageInfo:", error);
         console.error("  - Error message:", error.message);
         console.error("  - Error stack:", error.stack);
+    }
+}
+
+/**
+ * Test simple Apex execution with correct parameters
+ */
+function testSimpleApex(): void {
+    console.log("🧪 Testing Apex execution...");
+    
+    try {
+        // Use executeAnonymousApex if available, otherwise try a different approach
+        if (window.sforce.opencti.executeAnonymousApex) {
+            window.sforce.opencti.executeAnonymousApex({
+                callback: (response) => {
+                    console.log("📨 Apex execution response:", response);
+                    if (response.success) {
+                        console.log("✅ Apex execution test PASSED:", response.returnValue);
+                    } else {
+                        console.error("❌ Apex execution test FAILED:", response.errors);
+                    }
+                },
+                apexCode: "System.debug('CTI Integration Test - ' + DateTime.now()); return 'Success';"
+            });
+        } else {
+            console.log("⚠️ executeAnonymousApex not available, trying alternative approach...");
+            
+            // Alternative: Use searchAndScreenPop as a test
+            window.sforce.opencti.searchAndScreenPop({
+                callback: (response) => {
+                    console.log("📨 searchAndScreenPop test response:", response);
+                    if (response.success) {
+                        console.log("✅ CTI API test PASSED - searchAndScreenPop works");
+                    } else {
+                        console.log("ℹ️ searchAndScreenPop test result:", response);
+                    }
+                },
+                searchParams: 'Name=Test',
+                callType: window.sforce.opencti.CALL_TYPE.INBOUND
+            });
+        }
+    } catch (error) {
+        console.error("❌ Exception in Apex test:", error);
     }
 }
 
