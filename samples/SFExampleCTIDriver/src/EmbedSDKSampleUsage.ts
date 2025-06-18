@@ -319,10 +319,15 @@ async function initializeCallSession(conversationData: IConversationLoadedEventD
 async function recordCallStartTime(liveWorkItemId: string): Promise<void> {
     console.log("🚀 Starting recordCallStartTime for:", liveWorkItemId);
     
-    // Check if Salesforce Open CTI is available
+    // Check if Salesforce Open CTI is available, wait if needed
     if (!window.sforce || !window.sforce.opencti) {
-        console.error("❌ Salesforce Open CTI not available! CTI driver may not be loaded properly.");
-        return;
+        console.log("⏳ Salesforce Open CTI not ready, waiting...");
+        try {
+            await waitForSalesforceOpenCTI(5000); // Wait up to 5 seconds
+        } catch (error) {
+            console.error("❌ Salesforce Open CTI not available after waiting! CTI driver may not be loaded properly.");
+            return;
+        }
     }
     
     const callSession = activeCalls.get(liveWorkItemId);
@@ -648,15 +653,66 @@ async function saveCallLog(callSession: CallSession, duration: number): Promise<
 function testSalesforceIntegration(): void {
     console.log("🧪 Testing Salesforce integration...");
     
+    // First check if it's available immediately
+    if (window.sforce && window.sforce.opencti) {
+        runSalesforceTest();
+        return;
+    }
+    
+    // If not available, wait for it to load
+    console.log("⏳ Salesforce Open CTI not ready yet, waiting...");
+    waitForSalesforceOpenCTI()
+        .then(() => {
+            console.log("✅ Salesforce Open CTI is now available!");
+            runSalesforceTest();
+        })
+        .catch((error) => {
+            console.error("❌ Timeout waiting for Salesforce Open CTI:", error);
+            console.log("🔍 Available window properties:", Object.keys(window));
+            if (window.sforce) {
+                console.log("🔍 sforce properties:", Object.keys(window.sforce));
+            }
+        });
+}
+
+/**
+ * Wait for Salesforce Open CTI to become available
+ */
+function waitForSalesforceOpenCTI(timeout: number = 10000): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const startTime = Date.now();
+        
+        const checkInterval = setInterval(() => {
+            if (window.sforce && window.sforce.opencti) {
+                clearInterval(checkInterval);
+                resolve();
+                return;
+            }
+            
+            if (Date.now() - startTime > timeout) {
+                clearInterval(checkInterval);
+                reject(new Error(`Timeout after ${timeout}ms waiting for Salesforce Open CTI`));
+                return;
+            }
+        }, 100); // Check every 100ms
+    });
+}
+
+/**
+ * Run the actual Salesforce test
+ */
+function runSalesforceTest(): void {
     if (!window.sforce || !window.sforce.opencti) {
         console.error("❌ Salesforce Open CTI not available for testing!");
         return;
     }
     
-    // Test simple Apex execution - FIXED: Remove null apexClass and methodName
+    // Test simple Apex execution
     const testApexCode = `
-        return 'Salesforce CTI Integration Test Successful';
+        return 'Salesforce CTI Integration Test Successful - ' + DateTime.now().format();
     `;
+    
+    console.log("🚀 Running Salesforce integration test...");
     
     window.sforce.opencti.runApex({
         callback: (response) => {
@@ -670,5 +726,18 @@ function testSalesforceIntegration(): void {
     });
 }
 
-// Add window-level function for manual testing
+// Add window-level functions for manual testing
 (window as any).testSalesforceIntegration = testSalesforceIntegration;
+(window as any).waitForSalesforceOpenCTI = waitForSalesforceOpenCTI;
+(window as any).runSalesforceTest = runSalesforceTest;
+
+// Add a function to check current status
+(window as any).checkSalesforceStatus = function() {
+    console.log("🔍 Checking Salesforce status...");
+    console.log("window.sforce exists:", !!window.sforce);
+    if (window.sforce) {
+        console.log("window.sforce.opencti exists:", !!window.sforce.opencti);
+        console.log("sforce properties:", Object.keys(window.sforce));
+    }
+    console.log("Available window properties:", Object.keys(window).filter(key => key.includes('sforce') || key.includes('salesforce')));
+};
