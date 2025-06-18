@@ -62,6 +62,18 @@ const activeCalls = new Map<string, CallSession>();
 export function embedSDKSampleUsage(): void {
     const embedSDK: EmbedSDK = (window as any).Microsoft.CCaaS.EmbedSDK;
     if (embedSDK) {
+        
+        // Debug: Check Salesforce Open CTI availability
+        console.log("🔍 Checking Salesforce Open CTI availability...");
+        if (window.sforce && window.sforce.opencti) {
+            console.log("✅ Salesforce Open CTI is available!");
+        } else {
+            console.error("❌ Salesforce Open CTI is NOT available! This will prevent call time tracking from working.");
+            console.log("Available window properties:", Object.keys(window));
+            if (window.sforce) {
+                console.log("sforce available, properties:", Object.keys(window.sforce));
+            }
+        }
 
         embedSDK.conversation.onNotesAdded((noteText: INotesAddedEvent) => {
             console.log("Embed SDK New Note Created", noteText);
@@ -305,27 +317,40 @@ async function initializeCallSession(conversationData: IConversationLoadedEventD
  * Record call start time and create/find Salesforce Case
  */
 async function recordCallStartTime(liveWorkItemId: string): Promise<void> {
+    console.log("🚀 Starting recordCallStartTime for:", liveWorkItemId);
+    
+    // Check if Salesforce Open CTI is available
+    if (!window.sforce || !window.sforce.opencti) {
+        console.error("❌ Salesforce Open CTI not available! CTI driver may not be loaded properly.");
+        return;
+    }
+    
     const callSession = activeCalls.get(liveWorkItemId);
     if (!callSession) {
-        console.error("Call session not found for liveWorkItemId:", liveWorkItemId);
+        console.error("❌ Call session not found for liveWorkItemId:", liveWorkItemId);
         return;
     }
 
     // Record the call start time
     callSession.callStartTime = new Date();
+    console.log("⏰ Call start time set:", callSession.callStartTime);
     
     try {
+        console.log("🔍 Finding or creating Salesforce Case...");
         // Find or create Salesforce Case
         const caseId = await findOrCreateSalesforceCase(callSession);
         callSession.salesforceCaseId = caseId;
+        console.log("📋 Case ID obtained:", caseId);
 
         // Update Case with call start time
+        console.log("⬆️ Updating Case with call start time...");
         await updateSalesforceCaseCallTimes(caseId, callSession.callStartTime, null);
         
-        console.log(`Call start time recorded for Case ${caseId}:`, callSession.callStartTime);
+        console.log(`✅ Call start time recorded for Case ${caseId}:`, callSession.callStartTime);
         
     } catch (error) {
-        console.error("Failed to record call start time:", error);
+        console.error("❌ Failed to record call start time:", error);
+        console.error("Error details:", error.message, error.stack);
     }
 }
 
@@ -333,17 +358,21 @@ async function recordCallStartTime(liveWorkItemId: string): Promise<void> {
  * Record call end time and update Salesforce Case
  */
 async function recordCallEndTime(liveWorkItemId: string): Promise<void> {
+    console.log("🏁 Starting recordCallEndTime for:", liveWorkItemId);
+    
     const callSession = activeCalls.get(liveWorkItemId);
     if (!callSession) {
-        console.error("Call session not found for liveWorkItemId:", liveWorkItemId);
+        console.error("❌ Call session not found for liveWorkItemId:", liveWorkItemId);
         return;
     }
 
     // Record the call end time
     callSession.callEndTime = new Date();
+    console.log("⏰ Call end time set:", callSession.callEndTime);
     
     try {
         if (callSession.salesforceCaseId) {
+            console.log("⬆️ Updating Case with call end time...");
             // Update Case with call end time
             await updateSalesforceCaseCallTimes(
                 callSession.salesforceCaseId, 
@@ -356,20 +385,25 @@ async function recordCallEndTime(liveWorkItemId: string): Promise<void> {
                 ? (callSession.callEndTime.getTime() - callSession.callStartTime.getTime()) / 1000 
                 : 0;
                 
-            console.log(`Call completed for Case ${callSession.salesforceCaseId}:`, {
+            console.log(`✅ Call completed for Case ${callSession.salesforceCaseId}:`, {
                 startTime: callSession.callStartTime,
                 endTime: callSession.callEndTime,
                 duration: `${duration} seconds`
             });
             
             // Optionally save call log
+            console.log("💾 Saving call log...");
             await saveCallLog(callSession, duration);
+        } else {
+            console.error("❌ No Salesforce Case ID found for call session");
         }
         
     } catch (error) {
-        console.error("Failed to record call end time:", error);
+        console.error("❌ Failed to record call end time:", error);
+        console.error("Error details:", error.message, error.stack);
     } finally {
         // Clean up the call session
+        console.log("🧹 Cleaning up call session");
         activeCalls.delete(liveWorkItemId);
     }
 }
@@ -512,9 +546,13 @@ async function createNewCase(contactId: string | null, callSession: CallSession)
  * Update Salesforce Case with call start and end times
  */
 async function updateSalesforceCaseCallTimes(caseId: string, startTime: Date | null, endTime: Date | null): Promise<void> {
+    console.log("🔄 updateSalesforceCaseCallTimes called with:", { caseId, startTime, endTime });
+    
     return new Promise((resolve, reject) => {
         const startTimeStr = startTime ? startTime.toISOString() : 'null';
-        const endTimeStr = endTime ? endTime.toISOString() : 'null';        const apexCode = `
+        const endTimeStr = endTime ? endTime.toISOString() : 'null';
+
+        const apexCode = `
             Case caseToUpdate = [SELECT Id FROM Case WHERE Id = '${caseId}' LIMIT 1];
             ${startTime ? `caseToUpdate.Call_Start_Time_c__c = DateTime.valueOf('${startTime.toISOString().replace('T', ' ').replace('Z', '')}');` : ''}
             ${endTime ? `caseToUpdate.Call_End_Time_c__c = DateTime.valueOf('${endTime.toISOString().replace('T', ' ').replace('Z', '')}');` : ''}
@@ -523,17 +561,28 @@ async function updateSalesforceCaseCallTimes(caseId: string, startTime: Date | n
             return 'SUCCESS';
         `;
 
+        console.log("📝 Apex Code to execute:", apexCode);
+
+        // Check if Salesforce Open CTI is available
+        if (!window.sforce || !window.sforce.opencti) {
+            console.error("❌ Salesforce Open CTI not available in updateSalesforceCaseCallTimes!");
+            reject(new Error("Salesforce Open CTI not available"));
+            return;
+        }
+
         window.sforce.opencti.runApex({
             apexClass: null,
             methodName: null,
             methodParams: null,
             callback: (response) => {
+                console.log("📨 Apex execution response:", response);
                 if (response.success) {
-                    console.log(`Case ${caseId} updated with call times`);
+                    console.log(`✅ Case ${caseId} updated with call times successfully`);
                     resolve();
                 } else {
-                    console.error("Failed to update Case call times:", response.errors);
-                    reject(new Error("Failed to update Case"));
+                    console.error("❌ Failed to update Case call times:", response.errors);
+                    console.error("Full response:", JSON.stringify(response, null, 2));
+                    reject(new Error(`Failed to update Case: ${JSON.stringify(response.errors)}`));
                 }
             },
             apexCode: apexCode
@@ -542,6 +591,44 @@ async function updateSalesforceCaseCallTimes(caseId: string, startTime: Date | n
 }
 
 /**
+ * Alternative method to update Case using standard Salesforce navigation
+ */
+async function updateCaseAlternativeMethod(caseId: string, startTime: Date | null, endTime: Date | null): Promise<void> {
+    console.log("🔄 Using alternative method to update Case:", { caseId, startTime, endTime });
+    
+    if (!window.sforce || !window.sforce.opencti) {
+        console.error("❌ Salesforce Open CTI not available!");
+        return;
+    }
+    
+    // Get current page info and navigate to Case
+    window.sforce.opencti.getPageInfo({
+        callback: (response) => {
+            if (response.success) {
+                console.log("📄 Current page info:", response.returnValue);
+                
+                // Try to open the Case record for editing
+                const caseUrl = `/lightning/r/Case/${caseId}/view`;
+                window.sforce.opencti.openPrimaryTab({
+                    url: caseUrl,
+                    callback: (tabResponse) => {
+                        if (tabResponse.success) {
+                            console.log("✅ Case tab opened successfully");
+                            // Could potentially use additional APIs here
+                        } else {
+                            console.error("❌ Failed to open Case tab:", tabResponse.errors);
+                        }
+                    }
+                });
+            }
+        }
+    });
+}
+
+// Add to window for testing
+(window as any).updateCaseAlternativeMethod = updateCaseAlternativeMethod;
+
+ /**
  * Save detailed call log as Activity or custom object
  */
 async function saveCallLog(callSession: CallSession, duration: number): Promise<void> {
@@ -569,3 +656,37 @@ async function saveCallLog(callSession: CallSession, duration: number): Promise<
         });
     });
 }
+
+/**
+ * Test function to verify Salesforce integration is working
+ */
+function testSalesforceIntegration(): void {
+    console.log("🧪 Testing Salesforce integration...");
+    
+    if (!window.sforce || !window.sforce.opencti) {
+        console.error("❌ Salesforce Open CTI not available for testing!");
+        return;
+    }
+    
+    // Test simple Apex execution
+    const testApexCode = `
+        return 'Salesforce CTI Integration Test Successful';
+    `;
+    
+    window.sforce.opencti.runApex({
+        apexClass: null,
+        methodName: null,
+        methodParams: null,
+        callback: (response) => {
+            if (response.success) {
+                console.log("✅ Salesforce integration test PASSED:", response.returnValue);
+            } else {
+                console.error("❌ Salesforce integration test FAILED:", response.errors);
+            }
+        },
+        apexCode: testApexCode
+    });
+}
+
+// Add window-level function for manual testing
+(window as any).testSalesforceIntegration = testSalesforceIntegration;
