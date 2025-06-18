@@ -745,19 +745,41 @@ function initializeGlobalDebugFunctions() {
                 console.log("sforce properties:", Object.keys(window.sforce));
             }
             console.log("Available window properties:", Object.keys(window).filter(key => key.includes('sforce') || key.includes('salesforce')));
-        };
-
-        // Create a namespace for our debug functions
+        };        // Create a namespace for our debug functions
         (window as any).CCaaSDebug = {
             testSalesforceIntegration,
             waitForSalesforceOpenCTI,
             runSalesforceTest,
             checkSalesforceStatus: (window as any).checkSalesforceStatus
-        };        console.log("🛠️ Global debug functions exposed. Available commands:");
+        };
+
+        // IMPORTANT: Also expose functions to parent window (Salesforce main window)
+        try {
+            if (window.parent && window.parent !== window) {
+                console.log("📡 Exposing functions to parent window (Salesforce)...");
+                (window.parent as any).testSalesforceIntegration = testSalesforceIntegration;
+                (window.parent as any).checkSalesforceStatus = (window as any).checkSalesforceStatus;
+                (window.parent as any).CCaaSDebug = (window as any).CCaaSDebug;
+                
+                // Also expose via postMessage for cross-origin scenarios
+                window.parent.postMessage({
+                    type: 'CTI_DEBUG_FUNCTIONS_READY',
+                    functions: ['testSalesforceIntegration', 'checkSalesforceStatus', 'CCaaSDebug']
+                }, '*');
+                
+                console.log("✅ Functions exposed to parent window successfully");
+            }
+        } catch (parentError) {
+            console.log("⚠️ Cannot expose to parent window (CORS):", parentError.message);
+            console.log("💡 Functions available in iframe only - use iframe console or access via iframe.contentWindow");
+        }
+
+        console.log("🛠️ Global debug functions exposed. Available commands:");
         console.log("  - testSalesforceIntegration() - Test Salesforce integration");
         console.log("  - checkSalesforceStatus() - Check current status");
         console.log("  - CCaaSDebug.testSalesforceIntegration() - Alternative access");
         console.log("  - CCaaSDebug.checkSalesforceStatus() - Alternative access");
+        console.log("📍 Context: " + (window.parent !== window ? "Inside iframe" : "Main window"));
     } catch (error) {
         console.error("❌ Error exposing global functions:", error);
     }
