@@ -168,9 +168,10 @@ export function embedSDKSampleUsage(): void {
 
         embedSDK.ctiDriver.onSoftPhonePanelVisibilityChange((visibility: boolean) => {
            setSoftPhonePanelVisibility(visibility);
-        });
-
-        onClickToDial(embedSDK.ctiDriver.clickToDial);
+        });        onClickToDial(embedSDK.ctiDriver.clickToDial);
+        
+        // Initialize global debug functions after everything is set up
+        initializeGlobalDebugFunctions();
     }
 
 }
@@ -726,18 +727,38 @@ function runSalesforceTest(): void {
     });
 }
 
-// Add window-level functions for manual testing
-(window as any).testSalesforceIntegration = testSalesforceIntegration;
-(window as any).waitForSalesforceOpenCTI = waitForSalesforceOpenCTI;
-(window as any).runSalesforceTest = runSalesforceTest;
+/**
+ * Initialize global debug functions for testing
+ */
+function initializeGlobalDebugFunctions() {
+    try {
+        (window as any).testSalesforceIntegration = testSalesforceIntegration;
+        (window as any).waitForSalesforceOpenCTI = waitForSalesforceOpenCTI;
+        (window as any).runSalesforceTest = runSalesforceTest;
 
-// Add a function to check current status
-(window as any).checkSalesforceStatus = function() {
-    console.log("🔍 Checking Salesforce status...");
-    console.log("window.sforce exists:", !!window.sforce);
-    if (window.sforce) {
-        console.log("window.sforce.opencti exists:", !!window.sforce.opencti);
-        console.log("sforce properties:", Object.keys(window.sforce));
+        // Add a function to check current status
+        (window as any).checkSalesforceStatus = function() {
+            console.log("🔍 Checking Salesforce status...");
+            console.log("window.sforce exists:", !!window.sforce);
+            if (window.sforce) {
+                console.log("window.sforce.opencti exists:", !!window.sforce.opencti);
+                console.log("sforce properties:", Object.keys(window.sforce));
+            }
+            console.log("Available window properties:", Object.keys(window).filter(key => key.includes('sforce') || key.includes('salesforce')));
+        };
+
+        // Create a namespace for our debug functions
+        (window as any).CCaaSDebug = {
+            testSalesforceIntegration,
+            waitForSalesforceOpenCTI,
+            runSalesforceTest,
+            checkSalesforceStatus: (window as any).checkSalesforceStatus
+        };        console.log("🛠️ Global debug functions exposed. Available commands:");
+        console.log("  - testSalesforceIntegration() - Test Salesforce integration");
+        console.log("  - checkSalesforceStatus() - Check current status");
+        console.log("  - CCaaSDebug.testSalesforceIntegration() - Alternative access");
+        console.log("  - CCaaSDebug.checkSalesforceStatus() - Alternative access");
+    } catch (error) {
+        console.error("❌ Error exposing global functions:", error);
     }
-    console.log("Available window properties:", Object.keys(window).filter(key => key.includes('sforce') || key.includes('salesforce')));
-};
+}
