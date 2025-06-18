@@ -467,11 +467,10 @@ async function createNewCase(contactId: string | null, callSession: CallSession)
             Subject: `Contact Center Call - ${callSession.customerInfo?.name || 'Unknown Customer'}`,
             Origin: 'Phone',
             Status: 'New',
-            Priority: 'Medium',
-            Description: `Inbound call received at ${new Date().toLocaleString()}`,
+            Priority: 'Medium',            Description: `Inbound call received at ${new Date().toLocaleString()}`,
             // Add custom fields for call tracking
-            Call_Start_Time__c: null, // Will be updated when call starts
-            Call_End_Time__c: null,   // Will be updated when call ends
+            Call_Start_Time_c__c: null, // Will be updated when call starts
+            Call_End_Time_c__c: null,   // Will be updated when call ends
         };
 
         if (contactId) {
@@ -515,12 +514,10 @@ async function createNewCase(contactId: string | null, callSession: CallSession)
 async function updateSalesforceCaseCallTimes(caseId: string, startTime: Date | null, endTime: Date | null): Promise<void> {
     return new Promise((resolve, reject) => {
         const startTimeStr = startTime ? startTime.toISOString() : 'null';
-        const endTimeStr = endTime ? endTime.toISOString() : 'null';
-
-        const apexCode = `
+        const endTimeStr = endTime ? endTime.toISOString() : 'null';        const apexCode = `
             Case caseToUpdate = [SELECT Id FROM Case WHERE Id = '${caseId}' LIMIT 1];
-            ${startTime ? `caseToUpdate.Call_Start_Time__c = DateTime.valueOf('${startTime.toISOString().replace('T', ' ').replace('Z', '')}');` : ''}
-            ${endTime ? `caseToUpdate.Call_End_Time__c = DateTime.valueOf('${endTime.toISOString().replace('T', ' ').replace('Z', '')}');` : ''}
+            ${startTime ? `caseToUpdate.Call_Start_Time_c__c = DateTime.valueOf('${startTime.toISOString().replace('T', ' ').replace('Z', '')}');` : ''}
+            ${endTime ? `caseToUpdate.Call_End_Time_c__c = DateTime.valueOf('${endTime.toISOString().replace('T', ' ').replace('Z', '')}');` : ''}
             
             update caseToUpdate;
             return 'SUCCESS';
