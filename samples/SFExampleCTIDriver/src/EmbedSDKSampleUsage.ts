@@ -474,12 +474,7 @@ async function findOpenCaseForContact(contactId: string): Promise<string | null>
                 LIMIT 1
             ];
             return cases.isEmpty() ? null : cases[0].Id;
-        `;
-
-        window.sforce.opencti.runApex({
-            apexClass: null,
-            methodName: null,
-            methodParams: null,
+        `;        window.sforce.opencti.runApex({
             callback: (response) => {
                 if (response.success && response.returnValue) {
                     resolve(response.returnValue);
@@ -522,12 +517,7 @@ async function createNewCase(contactId: string | null, callSession: CallSession)
             
             insert newCase;
             return newCase.Id;
-        `;
-
-        window.sforce.opencti.runApex({
-            apexClass: null,
-            methodName: null,
-            methodParams: null,
+        `;        window.sforce.opencti.runApex({
             callback: (response) => {
                 if (response.success && response.returnValue) {
                     console.log("New Salesforce Case created:", response.returnValue);
@@ -568,12 +558,7 @@ async function updateSalesforceCaseCallTimes(caseId: string, startTime: Date | n
             console.error("❌ Salesforce Open CTI not available in updateSalesforceCaseCallTimes!");
             reject(new Error("Salesforce Open CTI not available"));
             return;
-        }
-
-        window.sforce.opencti.runApex({
-            apexClass: null,
-            methodName: null,
-            methodParams: null,
+        }        window.sforce.opencti.runApex({
             callback: (response) => {
                 console.log("📨 Apex execution response:", response);
                 if (response.success) {
@@ -668,15 +653,12 @@ function testSalesforceIntegration(): void {
         return;
     }
     
-    // Test simple Apex execution
+    // Test simple Apex execution - FIXED: Remove null apexClass and methodName
     const testApexCode = `
         return 'Salesforce CTI Integration Test Successful';
     `;
     
     window.sforce.opencti.runApex({
-        apexClass: null,
-        methodName: null,
-        methodParams: null,
         callback: (response) => {
             if (response.success) {
                 console.log("✅ Salesforce integration test PASSED:", response.returnValue);
