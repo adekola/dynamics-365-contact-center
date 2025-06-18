@@ -747,8 +747,24 @@ function waitForSalesforceOpenCTI(timeout: number = 10000): Promise<void> {
  * Run the actual Salesforce test
  */
 function runSalesforceTest(): void {
+    console.log("🔍 Starting runSalesforceTest function...");
+    
     if (!window.sforce || !window.sforce.opencti) {
         console.error("❌ Salesforce Open CTI not available for testing!");
+        console.log("🔍 Debug info:");
+        console.log("  - window.sforce exists:", !!window.sforce);
+        console.log("  - window.sforce.opencti exists:", !!(window.sforce && window.sforce.opencti));
+        console.log("  - Available window properties:", Object.keys(window).filter(key => key.includes('sforce')));
+        
+        // Additional checks
+        if (window.sforce) {
+            console.log("  - sforce properties:", Object.keys(window.sforce));
+        }
+        
+        // Check if we're in the right context
+        console.log("  - Window context:", window.location.href);
+        console.log("  - Is iframe:", window.parent !== window);
+        
         return;
     }
     
@@ -758,17 +774,28 @@ function runSalesforceTest(): void {
     `;
     
     console.log("🚀 Running Salesforce integration test...");
+    console.log("📝 Apex code to execute:", testApexCode.trim());
     
-    window.sforce.opencti.runApex({
-        callback: (response) => {
-            if (response.success) {
-                console.log("✅ Salesforce integration test PASSED:", response.returnValue);
-            } else {
-                console.error("❌ Salesforce integration test FAILED:", response.errors);
-            }
-        },
-        apexCode: testApexCode
-    });
+    try {
+        window.sforce.opencti.runApex({
+            callback: (response) => {
+                console.log("📨 Received runApex response:", response);
+                if (response.success) {
+                    console.log("✅ Salesforce integration test PASSED:", response.returnValue);
+                } else {
+                    console.error("❌ Salesforce integration test FAILED:");
+                    console.error("  - Success:", response.success);
+                    console.error("  - Errors:", response.errors);
+                    console.error("  - Full response:", response);
+                }
+            },
+            apexCode: testApexCode
+        });
+    } catch (error) {
+        console.error("❌ Exception running runApex:", error);
+        console.error("  - Error message:", error.message);
+        console.error("  - Error stack:", error.stack);
+    }
 }
 
 /**
@@ -778,18 +805,31 @@ function initializeGlobalDebugFunctions() {
     try {
         (window as any).testSalesforceIntegration = testSalesforceIntegration;
         (window as any).waitForSalesforceOpenCTI = waitForSalesforceOpenCTI;
-        (window as any).runSalesforceTest = runSalesforceTest;
-
-        // Add a function to check current status
+        (window as any).runSalesforceTest = runSalesforceTest;        // Add a function to check current status
         (window as any).checkSalesforceStatus = function() {
-            console.log("🔍 Checking Salesforce status...");
-            console.log("window.sforce exists:", !!window.sforce);
+            console.log("🔍 Checking Salesforce status in iframe...");
+            console.log("  - window.sforce exists:", !!window.sforce);
+            console.log("  - window.location.href:", window.location.href);
+            console.log("  - Is iframe context:", window.parent !== window);
+            
             if (window.sforce) {
-                console.log("window.sforce.opencti exists:", !!window.sforce.opencti);
-                console.log("sforce properties:", Object.keys(window.sforce));
+                console.log("  - window.sforce.opencti exists:", !!window.sforce.opencti);
+                console.log("  - sforce properties:", Object.keys(window.sforce));
+                
+                if (window.sforce.opencti) {
+                    console.log("  - runApex available:", typeof window.sforce.opencti.runApex);
+                    console.log("  - searchAndScreenPop available:", typeof window.sforce.opencti.searchAndScreenPop);
+                    console.log("  - getPageInfo available:", typeof window.sforce.opencti.getPageInfo);
+                }
+            } else {
+                console.log("❌ window.sforce is not available in iframe context");
+                console.log("💡 This might be normal - sforce may only be available in parent window");
             }
-            console.log("Available window properties:", Object.keys(window).filter(key => key.includes('sforce') || key.includes('salesforce')));
-        };        // Create a namespace for our debug functions
+            
+            console.log("  - Available window properties:", Object.keys(window).filter(key => 
+                key.includes('sforce') || key.includes('salesforce') || key.includes('Salesforce')
+            ));
+        };// Create a namespace for our debug functions
         (window as any).CCaaSDebug = {
             testSalesforceIntegration,
             waitForSalesforceOpenCTI,
