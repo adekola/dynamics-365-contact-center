@@ -68,11 +68,25 @@ export function embedSDKSampleUsage(): void {
         if (window.sforce && window.sforce.opencti) {
             console.log("✅ Salesforce Open CTI is available!");
         } else {
-            console.error("❌ Salesforce Open CTI is NOT available! This will prevent call time tracking from working.");
+            console.log("❌ Salesforce Open CTI is NOT available! This will prevent call time tracking from working.");
             console.log("Available window properties:", Object.keys(window));
             if (window.sforce) {
                 console.log("sforce available, properties:", Object.keys(window.sforce));
             }
+        }
+
+        // Set up message listener for parent window communication
+        if (window.parent !== window) {
+            window.addEventListener('message', (event) => {
+                if (event.data.type === 'INJECT_HELPER_SCRIPT') {
+                    try {
+                        eval(event.data.script);
+                        console.log("✅ Helper script injected via postMessage");
+                    } catch (e) {
+                        console.error("❌ Failed to inject helper script:", e);
+                    }
+                }
+            });
         }
 
         embedSDK.conversation.onNotesAdded((noteText: INotesAddedEvent) => {
@@ -751,21 +765,85 @@ function initializeGlobalDebugFunctions() {
             waitForSalesforceOpenCTI,
             runSalesforceTest,
             checkSalesforceStatus: (window as any).checkSalesforceStatus
-        };
-
-        // IMPORTANT: Also expose functions to parent window (Salesforce main window)
+        };        // IMPORTANT: Also expose functions to parent window (Salesforce main window)
         try {
             if (window.parent && window.parent !== window) {
                 console.log("📡 Exposing functions to parent window (Salesforce)...");
-                (window.parent as any).testSalesforceIntegration = testSalesforceIntegration;
-                (window.parent as any).checkSalesforceStatus = (window as any).checkSalesforceStatus;
-                (window.parent as any).CCaaSDebug = (window as any).CCaaSDebug;
                 
-                // Also expose via postMessage for cross-origin scenarios
+                // Try direct assignment first
+                try {
+                    (window.parent as any).testSalesforceIntegration = testSalesforceIntegration;
+                    (window.parent as any).checkSalesforceStatus = (window as any).checkSalesforceStatus;
+                    (window.parent as any).CCaaSDebug = (window as any).CCaaSDebug;
+                    console.log("✅ Direct parent window assignment successful");
+                } catch (directError) {
+                    console.log("⚠️ Direct assignment blocked:", directError.message);
+                }
+                
+                // Set up postMessage communication for cross-origin scenarios
+                window.addEventListener('message', (event) => {
+                    if (event.data.type === 'CALL_CTI_FUNCTION') {
+                        console.log("🎯 Received CTI function call request:", event.data.functionName);
+                        
+                        switch (event.data.functionName) {
+                            case 'testSalesforceIntegration':
+                                testSalesforceIntegration();
+                                break;
+                            case 'checkSalesforceStatus':
+                                (window as any).checkSalesforceStatus();
+                                break;
+                            default:
+                                console.log("Unknown function:", event.data.functionName);
+                        }
+                    }
+                });
+                
+                // Notify parent that functions are ready
                 window.parent.postMessage({
                     type: 'CTI_DEBUG_FUNCTIONS_READY',
                     functions: ['testSalesforceIntegration', 'checkSalesforceStatus', 'CCaaSDebug']
                 }, '*');
+                
+                // Also create helper functions in parent window via postMessage
+                const helperScript = `
+                    window.testSalesforceIntegration = function() {
+                        const ctiIframe = document.querySelector('iframe[src*="ccaas-embed-prod.azureedge.net"]');
+                        if (ctiIframe) {
+                            ctiIframe.contentWindow.postMessage({
+                                type: 'CALL_CTI_FUNCTION',
+                                functionName: 'testSalesforceIntegration'
+                            }, '*');
+                        } else {
+                            console.error('CTI iframe not found');
+                        }
+                    };
+                    
+                    window.checkSalesforceStatus = function() {
+                        const ctiIframe = document.querySelector('iframe[src*="ccaas-embed-prod.azureedge.net"]');
+                        if (ctiIframe) {
+                            ctiIframe.contentWindow.postMessage({
+                                type: 'CALL_CTI_FUNCTION',
+                                functionName: 'checkSalesforceStatus'
+                            }, '*');
+                        } else {
+                            console.error('CTI iframe not found');
+                        }
+                    };
+                    
+                    console.log("🛠️ CTI helper functions created in main window");
+                `;
+                  // Try to execute the helper script in parent
+                try {
+                    (window.parent as any).eval(helperScript);
+                    console.log("✅ Helper functions injected into parent window");
+                } catch (evalError) {
+                    console.log("⚠️ Cannot inject helper functions:", evalError.message);
+                    // Fallback: send the script via postMessage
+                    window.parent.postMessage({
+                        type: 'INJECT_HELPER_SCRIPT',
+                        script: helperScript
+                    }, '*');
+                }
                 
                 console.log("✅ Functions exposed to parent window successfully");
             }
